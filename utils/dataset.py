@@ -37,6 +37,10 @@ class Struct2SeqDataset(Dataset):
         import urllib.request
         os.makedirs(self.pdb_dir, exist_ok=True)
         for pdb_id in self.pdb_ids:
+            # Skip if already processed
+            if os.path.exists(os.path.join(self.processed_dir, f"data_{pdb_id}.pt")):
+                continue
+                
             # Common extensions could be .pdb or .cif or .pt
             pdb_path = os.path.join(self.pdb_dir, f"{pdb_id}.pdb")
             pt_path = os.path.join(self.pdb_dir, f"{pdb_id}.pt")
