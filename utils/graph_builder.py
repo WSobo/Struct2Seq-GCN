@@ -80,7 +80,7 @@ def dict_to_pyg_data(feature_dict, radius=8.0):
     # Edge construct
     edge_index = radius_graph(x, r=radius, loop=False)
     
-    data = Data(x=x, edge_index=edge_index, y=sequence_labels)
+    data = Data(x=x, edge_index=edge_index, y=sequence_labels.long())
     
     # Pass along mask/chain variables for identical scoring downstream
     if "chain_M" in feature_dict:
