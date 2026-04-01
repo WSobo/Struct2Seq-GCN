@@ -27,7 +27,7 @@ class Struct2SeqDataset(Dataset):
 
     @property
     def processed_file_names(self):
-        return [f"data_{pdb_id}_v3.pt" for pdb_id in self.pdb_ids]
+        return [f"data_{pdb_id}.pt" for pdb_id in self.pdb_ids]
 
     def download(self):
         # In a real scenario, you might download missing PDBs here.
@@ -50,7 +50,7 @@ class Struct2SeqDataset(Dataset):
                 data = pdb_to_pyg_data(pdb_path, radius=self.radius)
                 
                 # Save processed data
-                torch.save(data, os.path.join(self.processed_dir, f"data_{pdb_id}_v3.pt"))
+                torch.save(data, os.path.join(self.processed_dir, f"data_{pdb_id}.pt"))
             except Exception as e:
                 print(f"Error processing {pdb_id}: {e}")
 
@@ -59,5 +59,5 @@ class Struct2SeqDataset(Dataset):
 
     def get(self, idx):
         pdb_id = self.pdb_ids[idx]
-        data = torch.load(os.path.join(self.processed_dir, f"data_{pdb_id}_v3.pt"), weights_only=False)
+        data = torch.load(os.path.join(self.processed_dir, f"data_{pdb_id}.pt"), weights_only=False)
         return data
