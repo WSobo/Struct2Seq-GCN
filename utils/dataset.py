@@ -59,5 +59,5 @@ class Struct2SeqDataset(Dataset):
 
     def get(self, idx):
         pdb_id = self.pdb_ids[idx]
-        data = torch.load(os.path.join(self.processed_dir, f"data_{pdb_id}.pt"))
+        data = torch.load(os.path.join(self.processed_dir, f"data_{pdb_id}.pt"), weights_only=False)
         return data
