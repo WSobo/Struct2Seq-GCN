@@ -16,7 +16,14 @@ class Struct2SeqDataset(Dataset):
         self.pdb_dir = pdb_dir
         self.radius = radius
         with open(json_file, 'r') as f:
-            self.pdb_ids = json.load(f)
+            raw_ids = json.load(f)
+            
+        # Filter to only IDs that actually exist in the pdb_dir (prevents crashes on missing files)
+        valid_ids = []
+        for pid in raw_ids:
+            if os.path.exists(os.path.join(pdb_dir, f"{pid}.pdb")) or os.path.exists(os.path.join(pdb_dir, f"{pid}.pt")):
+                valid_ids.append(pid)
+        self.pdb_ids = valid_ids
             
         super().__init__(root, transform, pre_transform)
 
