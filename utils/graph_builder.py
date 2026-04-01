@@ -39,6 +39,16 @@ def get_ligandmpnn_features(pdb_path, device="cpu"):
     Leverages LigandMPNN's exact parsing logic to ensure 1:1 equivalency.
     """
     protein_dict, backbone, other_atoms, icodes, _ = parse_PDB(pdb_path, device=device)
+    
+    # LigandMPNN run.py adds chain_mask to designate which residues are redesigned (1) or fixed (0).
+    # For baseline GCN training, we assume all parsed residues are valid design targets.
+    if "chain_letters" in protein_dict:
+        protein_dict["chain_mask"] = torch.ones(
+            len(protein_dict["chain_letters"]), 
+            dtype=torch.int32, 
+            device=device
+        )
+
     # Featurize the same way LigandMPNN does
     # This prepares the raw dictionary into model-ready tensors
     # S, X, mask, chain_M, etc.
