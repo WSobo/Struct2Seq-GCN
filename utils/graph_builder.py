@@ -80,7 +80,11 @@ def dict_to_pyg_data(feature_dict, radius=8.0):
     # Edge construct
     edge_index = radius_graph(x, r=radius, loop=False)
     
-    data = Data(x=x, edge_index=edge_index, y=sequence_labels.long())
+    # Calculate pairwise distances (Edge Features) to work towards SE(3) invariance
+    row, col = edge_index
+    distances = torch.norm(x[row] - x[col], dim=1, p=2).unsqueeze(-1)
+    
+    data = Data(x=x, edge_index=edge_index, edge_attr=distances, y=sequence_labels.long())
     
     # Pass along mask/chain variables for identical scoring downstream
     if "chain_M" in feature_dict:
