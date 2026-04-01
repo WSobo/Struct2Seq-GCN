@@ -21,8 +21,23 @@ class GaussianSmearing(nn.Module):
         dist = dist.view(-1, 1) - self.offset.view(1, -1)
         return torch.exp(self.coeff * torch.pow(dist, 2))
 
+class ResidualCGConvBlock(nn.Module):
+    def __init__(self, hidden_dim, edge_dim=16, dropout=0.1):
+        super(ResidualCGConvBlock, self).__init__()
+        self.conv = CGConv(hidden_dim, dim=edge_dim, batch_norm=True)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x, edge_index, edge_attr):
+        identity = x
+        x = self.conv(x, edge_index, edge_attr)
+        x = self.norm(x)
+        x = F.relu(x)
+        x = self.dropout(x)
+        return x + identity
+
 class Struct2SeqGCN(nn.Module):
-    def __init__(self, node_features=6, hidden_dim=128, num_classes=21):
+    def __init__(self, node_features=6, hidden_dim=128, num_classes=21, num_layers=4, dropout=0.1):
         super(Struct2SeqGCN, self).__init__()
         
         # Initial node embedding to match hidden dimensions
@@ -31,10 +46,14 @@ class Struct2SeqGCN(nn.Module):
         # Distance Expansion: Maps [E, 1] distance scalars -> [E, 16] RBF embeddings
         self.edge_emb = GaussianSmearing(start=0.0, stop=8.0, num_gaussians=16)
         
-        # Edge-Conditioned Message Passing (CGConv explicitly takes edge attributes)
-        # dim=16 because our edge_attr is now an expanded 16D RBF vector
-        self.conv1 = CGConv(hidden_dim, dim=16, batch_norm=True)
-        self.conv2 = CGConv(hidden_dim, dim=16, batch_norm=True)
+        # Deep module list of residual message passing layers
+        self.layers = nn.ModuleList([
+            ResidualCGConvBlock(hidden_dim, edge_dim=16, dropout=dropout)
+            for _ in range(num_layers)
+        ])
+        
+        # Final layer normalization before classification
+        self.norm_out = nn.LayerNorm(hidden_dim)
         
         # Sequence prediction: linear classification layer for standard amino acids
         self.fc = nn.Linear(hidden_dim, num_classes)
@@ -48,14 +67,12 @@ class Struct2SeqGCN(nn.Module):
         # Convert SE(3) Invariant dihedral features into high-dimensional node features
         x = self.node_emb(x)
         
-        # Message Passing Layer 1 (now conditioned on enriched 16D RBF edge targets)
-        x = self.conv1(x, edge_index, edge_attr)
-        x = F.relu(x)
-        x = F.dropout(x, p=0.1, training=self.training)
-        
-        # Message Passing Layer 2
-        x = self.conv2(x, edge_index, edge_attr)
-        x = F.relu(x)
+        # Sequentially pass through all residual blocks
+        for layer in self.layers:
+            x = layer(x, edge_index, edge_attr)
+            
+        # Final normalization to stabilize outputs before projection
+        x = self.norm_out(x)
         
         # Output Logits
         logits = self.fc(x)
