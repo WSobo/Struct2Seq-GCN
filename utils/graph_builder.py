@@ -1,18 +1,38 @@
 import os
-import sys
+import importlib.util
 import torch
 from torch_geometric.data import Data
 from torch_geometric.nn import radius_graph
 
-# Make sure we can import LigandMPNN tools
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "LigandMPNN"))
+def _load_ligandmpnn_parsers():
+    """Load LigandMPNN parser functions from a concrete file path."""
+    repo_root = os.path.dirname(os.path.dirname(__file__))
+    candidates = [
+        os.path.join(repo_root, "LigandMPNN", "data_utils.py"),
+        os.path.join(repo_root, "examples", "LigandMPNN", "data_utils.py"),
+    ]
 
-try:
-    from data_utils import parse_PDB, featurize
-except ImportError:
-    # Alternative path if it's placed differently
-    sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "LigandMPNN"))
-    from data_utils import parse_PDB, featurize
+    parser_file = None
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            parser_file = candidate
+            break
+
+    if parser_file is None:
+        raise ImportError(
+            "Could not find LigandMPNN/data_utils.py. "
+            "If you cloned from GitHub, initialize submodules with: "
+            "git submodule update --init --recursive"
+        )
+
+    spec = importlib.util.spec_from_file_location("ligandmpnn_data_utils", parser_file)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module.parse_PDB, module.featurize
+
+
+parse_PDB, featurize = _load_ligandmpnn_parsers()
 
 def get_ligandmpnn_features(pdb_path, device="cpu"):
     """
