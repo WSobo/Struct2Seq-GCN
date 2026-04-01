@@ -5,18 +5,25 @@ from torch_geometric.data import Dataset
 from utils.graph_builder import pdb_to_pyg_data
 
 class Struct2SeqDataset(Dataset):
-    def __init__(self, root, json_file, pdb_dir, radius=8.0, transform=None, pre_transform=None):
+    def __init__(self, root, json_file, pdb_dir, radius=8.0, max_samples=None, transform=None, pre_transform=None):
         """
         Args:
             root (string): Root directory where the dataset should be saved.
             json_file (string): Path to LigandMPNN training JSON (e.g., train.json) containing list of PDB IDs.
             pdb_dir (string): Directory containing the actual .pdb or .pt files.
             radius (float): Distance cutoff for the graph edges.
+            max_samples (int, optional): Maximum number of random files to process (useful for testing).
         """
         self.pdb_dir = pdb_dir
         self.radius = radius
         with open(json_file, 'r') as f:
             self.pdb_ids = json.load(f)
+            
+        if max_samples is not None and len(self.pdb_ids) > max_samples:
+            import random
+            random.seed(42)  # Set seed for reproducible subsets
+            self.pdb_ids = random.sample(self.pdb_ids, max_samples)
+            print(f"Randomly selected {max_samples} structures from {json_file}")
             
         super().__init__(root, transform, pre_transform)
 

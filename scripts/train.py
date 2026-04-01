@@ -83,6 +83,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--max_samples", type=int, default=None, help="Randomly sample PDBs to prevent 100GB full dataset downloads during testing")
     parser.add_argument("--out_dir", type=str, default="outputs/")
     args = parser.parse_args()
     
@@ -91,8 +92,8 @@ def main():
     
     # 1. Dataset & Dataloaders
     print("Initializing datasets... (This will process raw PDBs into PyG graphs)")
-    train_dataset = Struct2SeqDataset(root="training/train_data", json_file=args.json_train, pdb_dir=args.pdb_dir)
-    valid_dataset = Struct2SeqDataset(root="training/valid_data", json_file=args.json_valid, pdb_dir=args.pdb_dir)
+    train_dataset = Struct2SeqDataset(root="training/train_data", json_file=args.json_train, pdb_dir=args.pdb_dir, max_samples=args.max_samples)
+    valid_dataset = Struct2SeqDataset(root="training/valid_data", json_file=args.json_valid, pdb_dir=args.pdb_dir, max_samples=args.max_samples // 10 if args.max_samples else None)
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False)
@@ -109,18 +110,41 @@ def main():
     # 3. Training Loop
     print("Starting training...")
     best_val_loss = float('inf')
+    early_stop_patience = 10
+    early_stop_counter = 0
+    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
+
     for epoch in range(args.epochs):
         train_loss, train_acc = train_epoch(model, train_loader, optimizer, criterion, device)
         val_loss, val_acc = evaluate(model, valid_loader, criterion, device)
         
-        print(f"Epoch {epoch+1:03d} | "
+        # Log metrics to history
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+        
+        print(f"Epoch {epoch+1:03d}/{args.epochs:03d} | "
               f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
               f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f}")
               
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            early_stop_counter = 0
             torch.save(model.state_dict(), os.path.join(args.out_dir, "best_model.pt"))
-            print("  -> Saved new best model!")
+            print(f"  -> Saved new best model! (Val Loss: {val_loss:.4f})")
+        else:
+            early_stop_counter += 1
+            print(f"  -> Early stopping counter: {early_stop_counter}/{early_stop_patience}")
+            if early_stop_counter >= early_stop_patience:
+                print(f"\nEarly stopping triggered after {epoch+1} epochs.")
+                break
+                
+    # Save the training history for plotting later
+    import json
+    with open(os.path.join(args.out_dir, "training_history.json"), "w") as f:
+        json.dump(history, f, indent=4)
+    print("\nTraining complete! History saved to outputs/training_history.json")
 
 if __name__ == "__main__":
     main()
