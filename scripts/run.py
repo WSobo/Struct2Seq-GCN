@@ -4,7 +4,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import torch
 import torch.nn.functional as F
-from utils.data_utils import pdb_to_pyg_data
+from utils.graph_builder import pdb_to_pyg_data
 from utils.model_utils import Struct2SeqGCN
 import argparse
 

@@ -2,7 +2,7 @@ import os
 import json
 import torch
 from torch_geometric.data import Dataset
-from utils.data_utils import pdb_to_pyg_data
+from utils.graph_builder import pdb_to_pyg_data
 
 class Struct2SeqDataset(Dataset):
     def __init__(self, root, json_file, pdb_dir, radius=8.0, transform=None, pre_transform=None):
