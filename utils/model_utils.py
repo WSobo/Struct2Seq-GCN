@@ -4,7 +4,7 @@ from torch_geometric.nn import CGConv, Linear
 import torch.nn.functional as F
 
 class Struct2SeqGCN(nn.Module):
-    def __init__(self, node_features=3, hidden_dim=128, num_classes=21):
+    def __init__(self, node_features=6, hidden_dim=128, num_classes=21):
         super(Struct2SeqGCN, self).__init__()
         
         # Initial node embedding to match hidden dimensions

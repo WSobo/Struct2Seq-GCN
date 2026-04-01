@@ -21,7 +21,7 @@ def main():
     data = pdb_to_pyg_data(args.pdb, radius=args.radius).to(device)
     
     # 2. Sequence Prediction Model
-    model = Struct2SeqGCN(node_features=3, hidden_dim=128, num_classes=21).to(device)
+    model = Struct2SeqGCN(node_features=6, hidden_dim=128, num_classes=21).to(device)
     model.eval()
     
     with torch.no_grad():

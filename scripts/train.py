@@ -98,7 +98,7 @@ def main():
     valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False)
     
     # 2. Model setup
-    model = Struct2SeqGCN(node_features=3, hidden_dim=128, num_classes=21).to(device)
+    model = Struct2SeqGCN(node_features=6, hidden_dim=128, num_classes=21).to(device)
     optimizer = Adam(model.parameters(), lr=args.lr)
     
     # Loss: cross entropy over the 21 classes (ignoring padding is already handled by masking)
