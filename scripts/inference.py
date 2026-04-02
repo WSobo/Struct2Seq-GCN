@@ -68,13 +68,25 @@ def main():
         probabilities = F.softmax(logits, dim=-1)
         predicted_classes = torch.argmax(probabilities, dim=-1)
         
-    # 5. Decode classes to Amino Acids
+    # 5. Decode classes to Amino Acids & Calculate Recovery
     predicted_seq = "".join([restype_int_to_str.get(c.item(), "X") for c in predicted_classes])
     
+    # Extract Native Sequence
+    native_classes = data['protein'].y
+    native_seq = "".join([restype_int_to_str.get(c.item(), "X") for c in native_classes])
+    
+    # Calculate Native Sequence Recovery (NSR)
+    matches = (predicted_classes == native_classes).sum().item()
+    total_residues = len(native_classes)
+    nsr_percentage = (matches / total_residues) * 100.0 if total_residues > 0 else 0.0
+    
     print("\n" + "="*50)
-    print("Predicted Amino Acid Sequence:")
+    print("INFERENCE RESULTS")
     print("="*50)
-    print(predicted_seq)
+    print(f"Native Sequence    : {native_seq}")
+    print(f"Predicted Sequence : {predicted_seq}")
+    print("-" * 50)
+    print(f"Native Sequence Recovery (NSR): {nsr_percentage:.2f}% ({matches}/{total_residues} residues)")
     print("="*50 + "\n")
 
     # 6. Save to FASTA (optional)
