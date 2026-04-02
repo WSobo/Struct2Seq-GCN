@@ -13,18 +13,12 @@ echo "Current working directory is $PWD"
 # Change to the submission directory automatically
 cd "${SLURM_SUBMIT_DIR}"
 
-# Step 1. Navigate up to root and ensure inputs dir exists
-cd ..
-mkdir -p inputs/
-cd scripts/
+# Provide Micromamba context so python is available
+export MAMBA_ROOT_PREFIX=$HOME/micromamba
+eval "$(micromamba shell hook --shell bash)"
+micromamba activate s2s-gnn
 
-# Step 2. Download the official, safe RCSB high-throughput mirroring script
-echo "Fetching official RCSB rsync payload script..."
-curl -s -O https://cdn.rcsb.org/rcsb-pdb/general_information/news_publications/rsyncPDB.sh
-chmod +x rsyncPDB.sh
+echo "Scraping specific JSON IDs from LigandMPNN and downloading flat files safely..."
+python scripts/download_json_pdbs.py
 
-# Step 3. Execute the mirror targeting the inputs folder
-echo "Beginning massive bulk PDB download via Rsync (This may take hours)..."
-./rsyncPDB.sh ../inputs/
-
-echo "✅ 150k Bulk sync complete!"
+echo "✅ Targeted JSON download complete!"
