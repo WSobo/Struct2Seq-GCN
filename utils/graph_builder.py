@@ -248,6 +248,6 @@ def pdb_to_pyg_data(pdb_path, radius=8.0, device="cpu"):
     Replaces the initial ProDy parser with LigandMPNN's native parser snippet.
     """
     feature_dict = get_ligandmpnn_features(pdb_path, device=device)
-    data = dict_to_pyg_data(feature_dict, radius=radius)
+    data = dict_to_pyg_data(feature_dict, radius_cutoff=radius)
     return data
 
