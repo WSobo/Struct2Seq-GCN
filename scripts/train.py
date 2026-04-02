@@ -5,10 +5,26 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import argparse
 import torch
 import torch.nn as nn
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 from torch.optim import Adam
 from torch_geometric.loader import DataLoader
 from utils.dataset import Struct2SeqDataset
 from utils.model_utils import Struct2SeqGNN
+
+def setup_ddp():
+    """Initialize Distributed Data Parallel environment."""
+    if "WORLD_SIZE" in os.environ:
+        dist.init_process_group("nccl")
+        local_rank = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(local_rank)
+        return local_rank, dist.get_world_size()
+    return 0, 1
+
+def cleanup_ddp():
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step, log_interval, checkpoint_interval, out_dir):
     model.train()
@@ -122,18 +138,28 @@ def main():
     
     args = parser.parse_args()
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    local_rank, world_size = setup_ddp()
+    is_main_process = local_rank == 0
+    device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+    
+    if is_main_process:
+        print(f"Using device: {device} | World Size: {world_size}")
     
     # 1. Dataset & Dataloaders
-    print("Initializing datasets... (This will process raw PDBs into PyG graphs)")
+    if is_main_process:
+        print("Initializing datasets... (This will process raw PDBs into PyG graphs)")
     train_dataset = Struct2SeqDataset(root="training/train_data", json_file=args.json_train, pdb_dir=args.pdb_dir, max_samples=args.max_samples)
     valid_dataset = Struct2SeqDataset(root="training/valid_data", json_file=args.json_valid, pdb_dir=args.pdb_dir, max_samples=args.max_samples // 10 if args.max_samples else None)
     
+    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=local_rank, shuffle=True) if dist.is_initialized() else None
+    valid_sampler = DistributedSampler(valid_dataset, num_replicas=world_size, rank=local_rank, shuffle=False) if dist.is_initialized() else None
+
+    # Adjust batch size strictly to per-GPU batch size
     train_loader = DataLoader(
         train_dataset, 
         batch_size=args.batch_size, 
-        shuffle=True, 
+        shuffle=(train_sampler is None), 
+        sampler=train_sampler,
         num_workers=args.num_workers, 
         pin_memory=args.pin_memory,
         persistent_workers=True if args.num_workers > 0 else False
@@ -142,6 +168,7 @@ def main():
         valid_dataset, 
         batch_size=args.batch_size, 
         shuffle=False, 
+        sampler=valid_sampler,
         num_workers=args.num_workers, 
         pin_memory=args.pin_memory,
         persistent_workers=True if args.num_workers > 0 else False
@@ -149,6 +176,11 @@ def main():
     
     # 2. Model setup
     model = Struct2SeqGNN(node_features=6, ligand_features=6, hidden_dim=args.hidden_dim, num_classes=21, num_layers=args.num_layers, dropout=0.1).to(device)
+    
+    if dist.is_initialized():
+        # Using DistributedDataParallel
+        model = DDP(model, device_ids=[local_rank])
+        
     optimizer = Adam(model.parameters(), lr=args.lr)
     
     # Loss: cross entropy over the 21 classes (ignoring padding is already handled by masking)
@@ -157,7 +189,8 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     
     # 3. Training Loop
-    print("Starting training...")
+    if is_main_process:
+        print("Starting training...")
     best_val_loss = float('inf')
     early_stop_patience = 10
     early_stop_counter = 0
@@ -165,39 +198,65 @@ def main():
     global_step = 0
 
     for epoch in range(args.epochs):
+        if hasattr(train_loader, 'sampler') and hasattr(train_loader.sampler, 'set_epoch'):
+            train_loader.sampler.set_epoch(epoch)
+            
         train_loss, train_acc, global_step = train_epoch(
             model, train_loader, optimizer, criterion, device, 
-            epoch, global_step, args.log_interval, args.checkpoint_interval, args.out_dir
+            epoch, global_step, args.log_interval if is_main_process else 0, args.checkpoint_interval if is_main_process else 0, args.out_dir
         )
         val_loss, val_acc = evaluate(model, valid_loader, criterion, device)
         
-        # Log metrics to history
-        history["train_loss"].append(train_loss)
-        history["train_acc"].append(train_acc)
-        history["val_loss"].append(val_loss)
-        history["val_acc"].append(val_acc)
-        
-        print(f"Epoch {epoch+1:03d}/{args.epochs:03d} | "
-            f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
-            f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f}")
+        if dist.is_initialized():
+            # Gather metrics across GPUs
+            val_loss_tensor = torch.tensor(val_loss, device=device)
+            val_acc_tensor = torch.tensor(val_acc, device=device)
+            dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
+            dist.all_reduce(val_acc_tensor, op=dist.ReduceOp.SUM)
+            val_loss = (val_loss_tensor / world_size).item()
+            val_acc = (val_acc_tensor / world_size).item()
+            
+        if is_main_process:
+            # Log metrics to history
+            history["train_loss"].append(train_loss)
+            history["train_acc"].append(train_acc)
+            history["val_loss"].append(val_loss)
+            history["val_acc"].append(val_acc)
+            
+            print(f"Epoch {epoch+1:03d}/{args.epochs:03d} | "
+                f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
+                f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f}")
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            early_stop_counter = 0
-            torch.save(model.state_dict(), os.path.join(args.out_dir, "best_model.pt"))
-            print(f"  -> Saved new best model! (Val Loss: {val_loss:.4f})")
-        else:
-            early_stop_counter += 1
-            print(f"  -> Early stopping counter: {early_stop_counter}/{early_stop_patience}")
-            if early_stop_counter >= early_stop_patience:
-                print(f"\nEarly stopping triggered after {epoch+1} epochs.")
-                break
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                early_stop_counter = 0
                 
-    # Save the training history for plotting later
-    import json
-    with open(os.path.join(args.out_dir, "training_history.json"), "w") as f:
-        json.dump(history, f, indent=4)
-    print("\nTraining complete! History saved to outputs/training_history.json")
+                # Unwrap model properly when saving
+                model_to_save = model.module if isinstance(model, DDP) else model
+                torch.save(model_to_save.state_dict(), os.path.join(args.out_dir, "best_model.pt"))
+                print(f"  -> Saved new best model! (Val Loss: {val_loss:.4f})")
+            else:
+                early_stop_counter += 1
+                print(f"  -> Early stopping counter: {early_stop_counter}/{early_stop_patience}")
+                if early_stop_counter >= early_stop_patience:
+                    print(f"\nEarly stopping triggered after {epoch+1} epochs.")
+                    break
+        
+        # Sync the early stop across all nodes to gracefully exit
+        stop_tensor = torch.tensor(early_stop_counter >= early_stop_patience, device=device, dtype=torch.int)
+        if dist.is_initialized():
+            dist.all_reduce(stop_tensor, op=dist.ReduceOp.MAX)
+        if stop_tensor.item() > 0:
+            break
+                
+    if is_main_process:
+        # Save the training history for plotting later
+        import json
+        with open(os.path.join(args.out_dir, "training_history.json"), "w") as f:
+            json.dump(history, f, indent=4)
+        print("\nTraining complete! History saved to outputs/training_history.json")
+        
+    cleanup_ddp()
 
 if __name__ == "__main__":
     main()
