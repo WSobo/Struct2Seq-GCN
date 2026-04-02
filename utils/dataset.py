@@ -42,11 +42,14 @@ class Struct2SeqDataset(Dataset):
 
     def process(self):
         import urllib.request
+        from concurrent.futures import ProcessPoolExecutor, as_completed
         os.makedirs(self.pdb_dir, exist_ok=True)
-        for pdb_id in self.pdb_ids:
+        
+        def process_single(pdb_id):
+            processed_path = os.path.join(self.processed_dir, f"data_{pdb_id}.pt")
             # Skip if already processed
-            if os.path.exists(os.path.join(self.processed_dir, f"data_{pdb_id}.pt")):
-                continue
+            if os.path.exists(processed_path):
+                return
                 
             # Common extensions could be .pdb or .cif or .pt
             pdb_path = os.path.join(self.pdb_dir, f"{pdb_id}.pdb")
@@ -58,40 +61,37 @@ class Struct2SeqDataset(Dataset):
             elif os.path.exists(pt_path):
                 active_path = pt_path
             else:
-                # If the raw file doesn't exist, dynamically fetch it from RCSB
-                try:
-                    print(f"Downloading missing PDB: {pdb_id}")
-                    urllib.request.urlretrieve(f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb", pdb_path)
-                    active_path = pdb_path
-                except Exception as e:
-                    print(f"Failed to fetch {pdb_id} from RCSB: {e}")
-                    continue
+                # Disable HTTP fallback to avoid RCSB API rate limits on massive datasets
+                print(f"File missing for {pdb_id}. Ensure it is fetched via rsync beforehand. Skipping.")
+                return
                     
             try:
                 # Convert to PyG Data using LigandMPNN's exact methods
                 data = pdb_to_pyg_data(active_path, radius=self.radius)
                 
                 # Save processed data
-                torch.save(data, os.path.join(self.processed_dir, f"data_{pdb_id}.pt"))
+                torch.save(data, processed_path)
             except Exception as e:
                 print(f"Error processing {pdb_id}: {e}")
+
+        # Use multiprocessing to speed up building the dataset maps massively
+        num_workers = min(os.cpu_count() or 1, 16)
+        print(f"Generating parsed graph files concurrently with {num_workers} processes...")
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = [executor.submit(process_single, pdb) for pdb in self.pdb_ids]
+            for future in as_completed(futures):
+                pass
 
     def len(self):
         return len(self.pdb_ids)
 
     def get(self, idx):
-        # In case the file was not created successfully (e.g. download failed), fallback to the first one safely.
+        # Prevent expensive glob fallback during rapid dataloader batching
         pdb_id = self.pdb_ids[idx]
         pt_file = os.path.join(self.processed_dir, f"data_{pdb_id}.pt")
         
         if not os.path.exists(pt_file):
-            import glob
-            # fallback to the first processed file available if missing
-            fallback_files = list(glob.glob(os.path.join(self.processed_dir, "data_*.pt")))
-            if len(fallback_files) > 0:
-                pt_file = fallback_files[0]
-            else:
-                raise FileNotFoundError(f"Missing graph for {pdb_id} and no fallback found.")
+            raise FileNotFoundError(f"Missing graph for {pdb_id}. Run process() properly offline first.")
                 
         data = torch.load(pt_file, weights_only=False)
         return data
