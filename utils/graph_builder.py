@@ -204,24 +204,22 @@ def dict_to_pyg_data(feature_dict, radius_cutoff=8.0):
         # Cross-edges: protein -> ligand
         l_pos = data['ligand'].pos
         
-        # radius(x, y, r) finds all edges from x to y within r
-        # Output edge_index: [2, num_edges] where row 0 is y, row 1 is x
-        # So radius(l_pos, p_pos, r) -> edges from l_pos to p_pos
-        # Note: PyG radius returns (col, row) mapping. Meaning y is row 0, x is row 1
-        pl_edge_index = radius(l_pos, p_pos, r=radius_cutoff) # mapping from Ligand to Protein
-        # The returned pl_edge_index row 0 is indices in l_pos, row 1 is indices in p_pos.
-        # Format: ['ligand', 'binds', 'protein'] -> Row 0 = ligand id, Row 1 = protein id
-        lp_edge_index = pl_edge_index # [2, E] where row[0] is ligand, row[1] is protein
+        # radius(x, y, r) Output edge_index: [2, E] where row 0 is y, row 1 is x
+        # radius(l_pos, p_pos, r) -> row 0 = p_pos indices, row 1 = l_pos indices
+        pl_edge_index = radius(l_pos, p_pos, r=radius_cutoff)
         
-        if lp_edge_index.size(1) > 0:
-            lp_row, lp_col = lp_edge_index[0], lp_edge_index[1]
-            lp_dist = torch.norm(l_pos[lp_row] - p_pos[lp_col], dim=1, p=2).unsqueeze(-1)
+        if pl_edge_index.size(1) > 0:
+            p_idx, l_idx = pl_edge_index[0], pl_edge_index[1]
+            
+            # ['ligand', 'binds', 'protein']: row 0 is ligand (src), row 1 is protein (dst)
+            lp_edge_index = torch.stack([l_idx, p_idx], dim=0)
+            lp_dist = torch.norm(l_pos[l_idx] - p_pos[p_idx], dim=1, p=2).unsqueeze(-1)
             
             data['ligand', 'binds', 'protein'].edge_index = lp_edge_index
             data['ligand', 'binds', 'protein'].edge_attr = lp_dist
             
-            # And reverse: Protein to Ligand
-            pl_edge_index_rev = torch.stack([lp_col, lp_row], dim=0)
+            # And reverse: ['protein', 'binds', 'ligand']
+            pl_edge_index_rev = torch.stack([p_idx, l_idx], dim=0)
             data['protein', 'binds', 'ligand'].edge_index = pl_edge_index_rev
             data['protein', 'binds', 'ligand'].edge_attr = lp_dist.clone()
         else:
