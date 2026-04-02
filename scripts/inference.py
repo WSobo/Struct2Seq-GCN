@@ -58,8 +58,8 @@ def main():
     # 4. Predict
     print("Running inference...")
     with torch.no_grad():
-        # HeteroConv requires dict inputs
-        logits = model(data.x_dict, data.edge_index_dict, data.edge_attr_dict)
+        # Struct2SeqGCN expects the full HeteroData object
+        logits = model(data)
         
         # HeteroConv returns a dict, extract the protein node predictions
         if isinstance(logits, dict):
