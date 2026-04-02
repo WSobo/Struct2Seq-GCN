@@ -42,9 +42,9 @@ class ResidualCGConvBlock(nn.Module):
         out = self.dropout(out)
         return out + identity
 
-class Struct2SeqGCN(nn.Module):
+class Struct2SeqGNN(nn.Module):
     def __init__(self, node_features=6, ligand_features=6, hidden_dim=128, num_classes=21, num_layers=4, dropout=0.1):
-        super(Struct2SeqGCN, self).__init__()
+        super(Struct2SeqGNN, self).__init__()
         
         # Initial node embeddings for distinct node types
         self.protein_emb = Linear(node_features, hidden_dim)

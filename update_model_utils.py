@@ -29,9 +29,9 @@ new_res_block = '''class ResidualCGConvBlock(nn.Module):
 
 content = re.sub(r'class ResidualCGConvBlock.*?return x \+ identity', new_res_block, content, flags=re.DOTALL)
 
-new_model = '''class Struct2SeqGCN(nn.Module):
+new_model = '''class Struct2SeqGNN(nn.Module):
     def __init__(self, node_features=6, ligand_features=6, hidden_dim=128, num_classes=21, num_layers=4, dropout=0.1):
-        super(Struct2SeqGCN, self).__init__()
+        super(Struct2SeqGNN, self).__init__()
         
         # Initial node embeddings for distinct node types
         self.protein_emb = Linear(node_features, hidden_dim)
@@ -82,7 +82,7 @@ new_model = '''class Struct2SeqGCN(nn.Module):
         
         return logits'''
 
-content = re.sub(r'class Struct2SeqGCN.*?return logits', new_model, content, flags=re.DOTALL)
+content = re.sub(r'class Struct2SeqGNN.*?return logits', new_model, content, flags=re.DOTALL)
 
 with open("utils/model_utils.py", "w") as f:
     f.write(content)

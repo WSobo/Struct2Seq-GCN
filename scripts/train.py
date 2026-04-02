@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.optim import Adam
 from torch_geometric.loader import DataLoader
 from utils.dataset import Struct2SeqDataset
-from utils.model_utils import Struct2SeqGCN
+from utils.model_utils import Struct2SeqGNN
 
 def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step, log_interval, checkpoint_interval, out_dir):
     model.train()
@@ -100,7 +100,7 @@ def evaluate(model, loader, criterion, device):
     return total_loss / len(loader), correct / total_samples
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Struct2Seq-GCN")
+    parser = argparse.ArgumentParser(description="Train Struct2Seq-GNN")
     parser.add_argument("--json_train", type=str, default="LigandMPNN/training/train.json", help="Path to train JSON")
     parser.add_argument("--json_valid", type=str, default="LigandMPNN/training/valid.json", help="Path to valid JSON")
     parser.add_argument("--pdb_dir", type=str, default="LigandMPNN/inputs/", help="Directory containing raw PDBs")
@@ -148,7 +148,7 @@ def main():
     )
     
     # 2. Model setup
-    model = Struct2SeqGCN(node_features=6, ligand_features=6, hidden_dim=args.hidden_dim, num_classes=21, num_layers=args.num_layers, dropout=0.1).to(device)
+    model = Struct2SeqGNN(node_features=6, ligand_features=6, hidden_dim=args.hidden_dim, num_classes=21, num_layers=args.num_layers, dropout=0.1).to(device)
     optimizer = Adam(model.parameters(), lr=args.lr)
     
     # Loss: cross entropy over the 21 classes (ignoring padding is already handled by masking)

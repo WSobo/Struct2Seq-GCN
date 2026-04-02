@@ -1,7 +1,7 @@
-# Struct2Seq-GCN: Heterogeneous Protein-Ligand Sequence Design
+# Struct2Seq-GNN: Heterogeneous Protein-Ligand Sequence Design
 
 ## Overview
-Struct2Seq-GCN is an advanced Heterogeneous Graph Neural Network built in PyTorch Geometric (PyG). It dynamically predicts optimal amino acid sequences by co-embedding the 3D geometric environments of protein backbones alongside spatial ligand interactions.
+Struct2Seq-GNN is an advanced Heterogeneous Graph Neural Network built in PyTorch Geometric (PyG). It dynamically predicts optimal amino acid sequences by co-embedding the 3D geometric environments of protein backbones alongside spatial ligand interactions.
 
 ## The Pipeline
 
@@ -23,8 +23,8 @@ To install the necessary components, ensure you have an Anaconda or Python virtu
 
 ```bash
 # Clone the repository
-git clone https://github.com/WSobo/Struct2Seq-GCN.git
-cd Struct2Seq-GCN
+git clone https://github.com/WSobo/Struct2Seq-GNN.git
+cd Struct2Seq-GNN
 
 # Install PyTorch
 pip install torch torchvision torchaudio

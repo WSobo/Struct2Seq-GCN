@@ -7,7 +7,7 @@ import torch.nn.functional as F
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.graph_builder import pdb_to_pyg_data
-from utils.model_utils import Struct2SeqGCN
+from utils.model_utils import Struct2SeqGNN
 
 try:
     from LigandMPNN.data_utils import restype_int_to_str
@@ -21,7 +21,7 @@ except ImportError:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Inference Script for Protein-Ligand Co-Design (Struct2Seq-GCN)")
+    parser = argparse.ArgumentParser(description="Inference Script for Protein-Ligand Co-Design (Struct2Seq-GNN)")
     parser.add_argument("--pdb", type=str, required=True, help="Path to input PDB file")
     parser.add_argument("--weights", type=str, default="outputs/best_model.pt", help="Path to trained model weights (.pt)")
     parser.add_argument("--radius", type=float, default=8.0, help="Distance cutoff in Angstroms for graph edges")
@@ -40,7 +40,7 @@ def main():
 
     # 2. Setup Model Architecture
     # Ensure num_classes=21 matches the vocabulary (20 std amino acids + 1 gap/unknown)
-    model = Struct2SeqGCN(
+    model = Struct2SeqGNN(
         node_features=6, 
         hidden_dim=128, 
         num_classes=21
@@ -58,7 +58,7 @@ def main():
     # 4. Predict
     print("Running inference...")
     with torch.no_grad():
-        # Struct2SeqGCN expects the full HeteroData object
+        # Struct2SeqGNN expects the full HeteroData object
         logits = model(data)
         
         # HeteroConv returns a dict, extract the protein node predictions
@@ -97,7 +97,7 @@ def main():
             
         header = os.path.basename(args.pdb).replace('.pdb', '')
         with open(args.out_fasta, "w") as f:
-            f.write(f">Struct2SeqGCN_Predicted_{header}\n")
+            f.write(f">Struct2SeqGNN_Predicted_{header}\n")
             f.write(f"{predicted_seq}\n")
         print(f"Saved FASTA to {args.out_fasta}")
 
