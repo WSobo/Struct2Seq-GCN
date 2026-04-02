@@ -1,0 +1,14 @@
+torch>=2.0.0
+torchvision
+torchaudio
+torch_geometric
+torch-cluster
+torch-scatter
+torch-sparse
+prody
+numpy
+pandas
+scipy
+tqdm
+jupyter
+ipykernel
