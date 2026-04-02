@@ -10,13 +10,13 @@ from torch_geometric.loader import DataLoader
 from utils.dataset import Struct2SeqDataset
 from utils.model_utils import Struct2SeqGCN
 
-def train_epoch(model, loader, optimizer, criterion, device):
+def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step, log_interval, checkpoint_interval, out_dir):
     model.train()
     total_loss = 0
     correct = 0
     total_samples = 0
     
-    for batch in loader:
+    for step, batch in enumerate(loader):
         batch = batch.to(device)
         optimizer.zero_grad()
         
@@ -42,14 +42,31 @@ def train_epoch(model, loader, optimizer, criterion, device):
         loss.backward()
         optimizer.step()
         
+        global_step += 1
+        
         # Track metrics
-        total_loss += loss.item()
+        loss_val = loss.item()
+        total_loss += loss_val
         
         preds = masked_logits.argmax(dim=-1)
-        correct += (preds == masked_targets).sum().item()
-        total_samples += mask.sum().item()
+        batch_correct = (preds == masked_targets).sum().item()
+        batch_samples = mask.sum().item()
         
-    return total_loss / len(loader), correct / total_samples
+        correct += batch_correct
+        total_samples += batch_samples
+        
+        # Step-level Live Logging
+        if log_interval > 0 and global_step % log_interval == 0:
+            batch_acc = batch_correct / batch_samples if batch_samples > 0 else 0.0
+            print(f"  [Epoch {epoch+1} | Step {global_step}] Loss: {loss_val:.4f} | Acc: {batch_acc:.4f}")
+            
+        # Step-level Mid-Epoch Checkpointing
+        if checkpoint_interval > 0 and global_step % checkpoint_interval == 0:
+            ckpt_path = os.path.join(out_dir, f"checkpoint_step_{global_step}.pt")
+            torch.save(model.state_dict(), ckpt_path)
+            print(f"  -> Saved step checkpoint: {ckpt_path}")
+        
+    return total_loss / len(loader), correct / total_samples, global_step
 
 def evaluate(model, loader, criterion, device):
     model.eval()
@@ -92,6 +109,13 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--max_samples", type=int, default=None, help="Randomly sample PDBs to prevent 100GB full dataset downloads during testing")
     parser.add_argument("--out_dir", type=str, default="outputs/")
+    
+    # Advanced HPC / MLOps parameters
+    parser.add_argument("--num_workers", type=int, default=4, help="CPU workers for data prefetching to prevent GPU starvation")
+    parser.add_argument("--pin_memory", action="store_true", help="Pin memory for faster host-to-GPU data transfers")
+    parser.add_argument("--log_interval", type=int, default=100, help="Print live training loss every N batches")
+    parser.add_argument("--checkpoint_interval", type=int, default=5000, help="Save mid-epoch checkpoints every N batches")
+    
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -102,8 +126,22 @@ def main():
     train_dataset = Struct2SeqDataset(root="training/train_data", json_file=args.json_train, pdb_dir=args.pdb_dir, max_samples=args.max_samples)
     valid_dataset = Struct2SeqDataset(root="training/valid_data", json_file=args.json_valid, pdb_dir=args.pdb_dir, max_samples=args.max_samples // 10 if args.max_samples else None)
     
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=True, 
+        num_workers=args.num_workers, 
+        pin_memory=args.pin_memory,
+        persistent_workers=True if args.num_workers > 0 else False
+    )
+    valid_loader = DataLoader(
+        valid_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=False, 
+        num_workers=args.num_workers, 
+        pin_memory=args.pin_memory,
+        persistent_workers=True if args.num_workers > 0 else False
+    )
     
     # 2. Model setup
     model = Struct2SeqGCN(node_features=6, hidden_dim=128, num_classes=21).to(device)
@@ -120,9 +158,13 @@ def main():
     early_stop_patience = 10
     early_stop_counter = 0
     history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
+    global_step = 0
 
     for epoch in range(args.epochs):
-        train_loss, train_acc = train_epoch(model, train_loader, optimizer, criterion, device)
+        train_loss, train_acc, global_step = train_epoch(
+            model, train_loader, optimizer, criterion, device, 
+            epoch, global_step, args.log_interval, args.checkpoint_interval, args.out_dir
+        )
         val_loss, val_acc = evaluate(model, valid_loader, criterion, device)
         
         # Log metrics to history
