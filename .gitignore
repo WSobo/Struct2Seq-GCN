@@ -1,0 +1,19 @@
+# Python Environment
+venv/
+__pycache__/
+*.pyc
+
+# SLURM Logs
+logs/
+*.out
+*.err
+
+# Massive Datasets
+data/
+inputs/
+
+# Trained Model Weights & JSON Histories
+outputs/
+LigandMPNN/
+local_models/
+*.pt

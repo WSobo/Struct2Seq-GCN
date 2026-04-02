@@ -7,7 +7,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def download_pdb(pdb_id, out_dir):
     pdb_id = str(pdb_id).lower()
-    out_path = os.path.join(out_dir, f"{pdb_id}.pdb")
+    
+    # Use RCSB-style HPC-safe 2-character subdirectories (e.g. 1abc -> ab)
+    sub_dir = pdb_id[1:3] if len(pdb_id) >= 4 else "misc"
+    target_dir = os.path.join(out_dir, sub_dir)
+    os.makedirs(target_dir, exist_ok=True)
+    
+    out_path = os.path.join(target_dir, f"{pdb_id}.pdb")
     
     if os.path.exists(out_path):
         return True

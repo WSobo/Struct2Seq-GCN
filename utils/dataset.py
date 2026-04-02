@@ -51,9 +51,13 @@ class Struct2SeqDataset(Dataset):
             if os.path.exists(processed_path):
                 return
                 
+            # Parse RCSB-style HPC-safe directories
+            pdb_id_str = str(pdb_id).lower()
+            sub_dir = pdb_id_str[1:3] if len(pdb_id_str) >= 4 else "misc"
+                
             # Common extensions could be .pdb or .cif or .pt
-            pdb_path = os.path.join(self.pdb_dir, f"{pdb_id}.pdb")
-            pt_path = os.path.join(self.pdb_dir, f"{pdb_id}.pt")
+            pdb_path = os.path.join(self.pdb_dir, sub_dir, f"{pdb_id}.pdb")
+            pt_path = os.path.join(self.pdb_dir, sub_dir, f"{pdb_id}.pt")
             
             active_path = None
             if os.path.exists(pdb_path):
