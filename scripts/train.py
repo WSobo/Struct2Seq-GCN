@@ -110,6 +110,10 @@ def main():
     parser.add_argument("--max_samples", type=int, default=None, help="Randomly sample PDBs to prevent 100GB full dataset downloads during testing")
     parser.add_argument("--out_dir", type=str, default="outputs/")
     
+    # Model scaling limits
+    parser.add_argument("--hidden_dim", type=int, default=128, help="Hidden dimensions for nodes and edges (Scale up for 150k dataset)")
+    parser.add_argument("--num_layers", type=int, default=4, help="Number of graph convolution layers (Scale up for 150k dataset)")
+    
     # Advanced HPC / MLOps parameters
     parser.add_argument("--num_workers", type=int, default=4, help="CPU workers for data prefetching to prevent GPU starvation")
     parser.add_argument("--pin_memory", action="store_true", help="Pin memory for faster host-to-GPU data transfers")
@@ -144,7 +148,7 @@ def main():
     )
     
     # 2. Model setup
-    model = Struct2SeqGCN(node_features=6, hidden_dim=128, num_classes=21).to(device)
+    model = Struct2SeqGCN(node_features=6, ligand_features=6, hidden_dim=args.hidden_dim, num_classes=21, num_layers=args.num_layers, dropout=0.1).to(device)
     optimizer = Adam(model.parameters(), lr=args.lr)
     
     # Loss: cross entropy over the 21 classes (ignoring padding is already handled by masking)
