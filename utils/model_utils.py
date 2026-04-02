@@ -50,8 +50,13 @@ class Struct2SeqGCN(nn.Module):
         self.protein_emb = Linear(node_features, hidden_dim)
         self.ligand_emb = Linear(ligand_features, hidden_dim)
         
-        # Shared distance expansion for all edge types
-        self.edge_emb = GaussianSmearing(start=0.0, stop=8.0, num_gaussians=16)
+        # Distinct RBF distance expansions for each edge type
+        # Decoupling these allows the network to scale bonds differently (e.g. covalent backbone vs weak ionic ligand bonds)
+        self.edge_embs = nn.ModuleDict({
+            'protein__interacts_with__protein': GaussianSmearing(start=0.0, stop=8.0, num_gaussians=16),
+            'ligand__binds__protein': GaussianSmearing(start=0.0, stop=8.0, num_gaussians=16),
+            'protein__binds__ligand': GaussianSmearing(start=0.0, stop=8.0, num_gaussians=16)
+        })
         
         # Deep module list involving HeteroConv
         self.layers = nn.ModuleList()
@@ -82,7 +87,13 @@ class Struct2SeqGCN(nn.Module):
         
         edge_attr_dict_expanded = {}
         for edge_type, edge_attr in edge_attr_dict.items():
-            edge_attr_dict_expanded[edge_type] = self.edge_emb(edge_attr)
+            # PyG creates string representations of edge type tuples (src, edge, dst)
+            # which we convert to valid py keys for the ModuleDict lookup via '__'
+            key = f"{edge_type[0]}__{edge_type[1]}__{edge_type[2]}"
+            if key in self.edge_embs:
+                edge_attr_dict_expanded[edge_type] = self.edge_embs[key](edge_attr)
+            else:
+                edge_attr_dict_expanded[edge_type] = edge_attr
         
         # 2. Iterative Message Passing through HeteroConv
         for layer in self.layers:
