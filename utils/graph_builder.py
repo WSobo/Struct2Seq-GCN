@@ -1,8 +1,8 @@
 import os
 import importlib.util
 import torch
-from torch_geometric.data import Data
-from torch_geometric.nn import radius_graph
+from torch_geometric.data import Data, HeteroData
+from torch_geometric.nn import radius_graph, radius
 
 def _load_ligandmpnn_parsers():
     """Load LigandMPNN parser functions from a concrete file path."""
@@ -51,8 +51,14 @@ def get_ligandmpnn_features(pdb_path, device="cpu"):
 
     # Featurize the same way LigandMPNN does
     # This prepares the raw dictionary into model-ready tensors
-    # S, X, mask, chain_M, etc.
     feature_dict = featurize(protein_dict, cutoff_for_score=8.0)
+    
+    # We explicitly inject the raw ligand atoms extracted by parse_PDB
+    # so we can build them as separate nodes in a Heterogeneous Graph.
+    feature_dict["ligand_Y"] = protein_dict.get("Y", None)
+    feature_dict["ligand_Y_t"] = protein_dict.get("Y_t", None)
+    feature_dict["ligand_Y_m"] = protein_dict.get("Y_m", None)
+    
     return feature_dict
 
 def compute_dihedrals(X):
@@ -95,48 +101,147 @@ def compute_dihedrals(X):
     dihedrals = torch.stack([phi, psi, omega], dim=-1) # [L, 3]
     return torch.cat([torch.sin(dihedrals), torch.cos(dihedrals)], dim=-1) # [L, 6]
 
-def dict_to_pyg_data(feature_dict, radius=8.0):
+def encode_ligand_elements(element_ids):
     """
-    Converts LigandMPNN's feature_dict into a PyTorch Geometric Data object
-    so we can train our GCN on the exact same data splits.
+    Converts PyTorch integer elemental IDs into a [M, 6] one-hot tensor.
+    LigandMPNN maps elements functionally to their atomic numbers:
+    Carbon=6, Nitrogen=7, Oxygen=8, Phosphorus=15, Sulfur=16.
+    
+    We map these to 6 biological bins for the network:
+    0: Carbon
+    1: Nitrogen
+    2: Oxygen
+    3: Sulfur
+    4: Phosphorus
+    5: Other / Halogens
     """
+    M = element_ids.shape[0]
+    one_hot = torch.zeros((M, 6), dtype=torch.float32, device=element_ids.device)
+    
+    mask_C = (element_ids == 6)
+    mask_N = (element_ids == 7)
+    mask_O = (element_ids == 8)
+    mask_S = (element_ids == 16)
+    mask_P = (element_ids == 15)
+    
+    one_hot[mask_C, 0] = 1.0
+    one_hot[mask_N, 1] = 1.0
+    one_hot[mask_O, 2] = 1.0
+    one_hot[mask_S, 3] = 1.0
+    one_hot[mask_P, 4] = 1.0
+    
+    mask_other = ~(mask_C | mask_N | mask_O | mask_S | mask_P)
+    one_hot[mask_other, 5] = 1.0
+    
+    return one_hot
+
+def dict_to_pyg_data(feature_dict, radius_cutoff=8.0):
+    """
+    Converts LigandMPNN's feature_dict into a PyTorch Geometric HeteroData object
+    capable of processing distinct 'protein' and 'ligand' nodes symmetrically.
+    """
+    data = HeteroData()
+
+    # ==================================================
+    # 1. Build Protein Nodes
+    # ==================================================
     X = feature_dict["X"].squeeze(0)  # [L, 14, 3] usually
     if X.dim() == 3 and X.size(1) >= 4:
-        # N, CA, C, O => index 1 is CA
-        ca_coords = X[:, 1, :] 
+        ca_coords = X[:, 1, :]
     else:
-        ca_coords = X # Fallback
+        ca_coords = X
         
-    sequence_labels = feature_dict["S"].squeeze(0) # [L]
-    mask = feature_dict["mask"].squeeze(0).bool() # [L]
+    sequence_labels = feature_dict["S"].squeeze(0)
+    mask = feature_dict["mask"].squeeze(0).bool()
     
-    # Compute SE(3) invariant node features BEFORE masking to preserve i-1/i+1 structure
-    # This gives us [L, 6] outputs (sin, cos of phi, psi, omega)
     dihedral_features = compute_dihedrals(X)
     
-    # Filter out invalid residues (where mask is 0)
     ca_coords = ca_coords[mask]
     sequence_labels = sequence_labels[mask]
     dihedral_features = dihedral_features[mask]
     
-    # v2.0 spec: SE(3) Invariant representations (Backbone dihedral angles)
-    x = dihedral_features.clone().float()
+    data['protein'].x = dihedral_features.clone().float()
+    data['protein'].pos = ca_coords.clone().float()
+    data['protein'].y = sequence_labels.long()
     
-    # Edge construct based on real coordinates
-    ca_float = ca_coords.clone().float()
-    edge_index = radius_graph(ca_float, r=radius, loop=False)
-    
-    # Calculate pairwise distances (Edge Features) to work towards SE(3) invariance
-    row, col = edge_index
-    distances = torch.norm(ca_float[row] - ca_float[col], dim=1, p=2).unsqueeze(-1)
-    
-    data = Data(x=x, edge_index=edge_index, edge_attr=distances, y=sequence_labels.long())
-    
-    # Pass along mask/chain variables for identical scoring downstream
     if "chain_M" in feature_dict:
-        data.chain_M = feature_dict["chain_M"].squeeze(0)[mask]
+        data['protein'].chain_M = feature_dict["chain_M"].squeeze(0)[mask]
     
+    # Protein -> Protein Edges
+    p_pos = data['protein'].pos
+    pp_edge_index = radius_graph(p_pos, r=radius_cutoff, loop=False)
+    p_row, p_col = pp_edge_index
+    pp_dist = torch.norm(p_pos[p_row] - p_pos[p_col], dim=1, p=2).unsqueeze(-1)
+    
+    data['protein', 'interacts_with', 'protein'].edge_index = pp_edge_index
+    data['protein', 'interacts_with', 'protein'].edge_attr = pp_dist
+
+    # ==================================================
+    # 2. Build Ligand Nodes
+    # ==================================================
+    Y = feature_dict.get("ligand_Y")        # [M, 3]
+    Y_t = feature_dict.get("ligand_Y_t")    # [M] Elemental IDs
+    Y_m = feature_dict.get("ligand_Y_m")    # [M] Valid mask
+    
+    # Default to an empty, floating 0-node tensor setup if no ligands exist
+    num_ligand_atoms = 0
+    if Y is not None and Y_m is not None:
+        Y_mask = Y_m.bool()
+        if Y_mask.sum() > 0:
+            Y = Y[Y_mask]
+            Y_t = Y_t[Y_mask]
+            num_ligand_atoms = Y.shape[0]
+            
+            # Simple embedding: treating element ID as a biological one-hot categorical block.
+            # Using our encode_ligand_elements to create an [M, 6] tensor structurally identical 
+            # to the protein's dihedral format for symmetry.
+            lig_x = encode_ligand_elements(Y_t)
+            
+            data['ligand'].x = lig_x
+            data['ligand'].pos = Y.float()
+            
+    if num_ligand_atoms > 0:
+        # Cross-edges: protein -> ligand
+        l_pos = data['ligand'].pos
+        
+        # radius(x, y, r) finds all edges from x to y within r
+        # Output edge_index: [2, num_edges] where row 0 is y, row 1 is x
+        # So radius(l_pos, p_pos, r) -> edges from l_pos to p_pos
+        # Note: PyG radius returns (col, row) mapping. Meaning y is row 0, x is row 1
+        pl_edge_index = radius(l_pos, p_pos, r=radius_cutoff) # mapping from Ligand to Protein
+        # The returned pl_edge_index row 0 is indices in l_pos, row 1 is indices in p_pos.
+        # Format: ['ligand', 'binds', 'protein'] -> Row 0 = ligand id, Row 1 = protein id
+        lp_edge_index = pl_edge_index # [2, E] where row[0] is ligand, row[1] is protein
+        
+        if lp_edge_index.size(1) > 0:
+            lp_row, lp_col = lp_edge_index[0], lp_edge_index[1]
+            lp_dist = torch.norm(l_pos[lp_row] - p_pos[lp_col], dim=1, p=2).unsqueeze(-1)
+            
+            data['ligand', 'binds', 'protein'].edge_index = lp_edge_index
+            data['ligand', 'binds', 'protein'].edge_attr = lp_dist
+            
+            # And reverse: Protein to Ligand
+            pl_edge_index_rev = torch.stack([lp_col, lp_row], dim=0)
+            data['protein', 'binds', 'ligand'].edge_index = pl_edge_index_rev
+            data['protein', 'binds', 'ligand'].edge_attr = lp_dist.clone()
+        else:
+            # Fallback empty tensors if no atoms are within radius
+            data['ligand', 'binds', 'protein'].edge_index = torch.empty((2, 0), dtype=torch.long)
+            data['ligand', 'binds', 'protein'].edge_attr = torch.empty((0, 1), dtype=torch.float32)
+            data['protein', 'binds', 'ligand'].edge_index = torch.empty((2, 0), dtype=torch.long)
+            data['protein', 'binds', 'ligand'].edge_attr = torch.empty((0, 1), dtype=torch.float32)
+            
+    else:
+        # Fallback empty state for PDBs strictly lacking any small molecules (Apos)
+        data['ligand'].x = torch.empty((0, 6), dtype=torch.float32)
+        data['ligand'].pos = torch.empty((0, 3), dtype=torch.float32)
+        data['ligand', 'binds', 'protein'].edge_index = torch.empty((2, 0), dtype=torch.long)
+        data['ligand', 'binds', 'protein'].edge_attr = torch.empty((0, 1), dtype=torch.float32)
+        data['protein', 'binds', 'ligand'].edge_index = torch.empty((2, 0), dtype=torch.long)
+        data['protein', 'binds', 'ligand'].edge_attr = torch.empty((0, 1), dtype=torch.float32)
+
     return data
+
 
 def pdb_to_pyg_data(pdb_path, radius=8.0, device="cpu"):
     """

@@ -1,27 +1,12 @@
-import torch
-import torch.nn as nn
-from torch_geometric.nn import CGConv, Linear, HeteroConv
-import torch.nn.functional as F
+import re
 
-class GaussianSmearing(nn.Module):
-    """
-    Expands a scalar distance tensor into a 16-dimensional Radial Basis Function (RBF) vector.
-    This creates a rich representation for neural networks out of a single scalar distance.
-    """
-    def __init__(self, start=0.0, stop=8.0, num_gaussians=16):
-        super(GaussianSmearing, self).__init__()
-        offset = torch.linspace(start, stop, num_gaussians)
-        # Calculate the Gaussian coefficient directly handling width scale
-        self.coeff = -0.5 / ((stop - start) / (num_gaussians - 1))**2
-        self.register_buffer('offset', offset)
+with open("utils/model_utils.py", "r") as f:
+    content = f.read()
 
-    def forward(self, dist):
-        # dist shape: [E, 1]
-        # output shape: [E, 16]
-        dist = dist.view(-1, 1) - self.offset.view(1, -1)
-        return torch.exp(self.coeff * torch.pow(dist, 2))
+hetero_conv_import = "from torch_geometric.nn import CGConv, Linear, HeteroConv\n"
+content = content.replace("from torch_geometric.nn import CGConv, Linear\n", hetero_conv_import)
 
-class ResidualCGConvBlock(nn.Module):
+new_res_block = '''class ResidualCGConvBlock(nn.Module):
     def __init__(self, hidden_dim, edge_dim=16, dropout=0.1):
         super(ResidualCGConvBlock, self).__init__()
         self.conv = CGConv(hidden_dim, dim=edge_dim, batch_norm=True)
@@ -40,9 +25,11 @@ class ResidualCGConvBlock(nn.Module):
         out = self.norm(out)
         out = F.relu(out)
         out = self.dropout(out)
-        return out + identity
+        return out + identity'''
 
-class Struct2SeqGCN(nn.Module):
+content = re.sub(r'class ResidualCGConvBlock.*?return x \+ identity', new_res_block, content, flags=re.DOTALL)
+
+new_model = '''class Struct2SeqGCN(nn.Module):
     def __init__(self, node_features=6, ligand_features=6, hidden_dim=128, num_classes=21, num_layers=4, dropout=0.1):
         super(Struct2SeqGCN, self).__init__()
         
@@ -93,4 +80,9 @@ class Struct2SeqGCN(nn.Module):
         protein_x = self.norm_out(protein_x)
         logits = self.fc(protein_x)
         
-        return logits
+        return logits'''
+
+content = re.sub(r'class Struct2SeqGCN.*?return logits', new_model, content, flags=re.DOTALL)
+
+with open("utils/model_utils.py", "w") as f:
+    f.write(content)

@@ -25,14 +25,17 @@ def train_epoch(model, loader, optimizer, criterion, device):
         
         # We only want to compute loss on the regions we care about
         # chain_M comes natively from LigandMPNN (1 for residues to predict, 0 otherwise)
-        mask = batch.chain_M.bool() if hasattr(batch, 'chain_M') else torch.ones_like(batch.y).bool()
+        if hasattr(batch['protein'], 'chain_M'):
+            mask = batch['protein'].chain_M.bool()
+        else:
+            mask = torch.ones_like(batch['protein'].y).bool()
         
         if mask.sum() == 0:
             continue
             
         # Filter logits and targets by mask
         masked_logits = logits[mask]
-        masked_targets = batch.y[mask]
+        masked_targets = batch['protein'].y[mask]
         
         # Compute loss
         loss = criterion(masked_logits, masked_targets)
@@ -59,12 +62,16 @@ def evaluate(model, loader, criterion, device):
             batch = batch.to(device)
             logits = model(batch)
             
-            mask = batch.chain_M.bool() if hasattr(batch, 'chain_M') else torch.ones_like(batch.y).bool()
+            if hasattr(batch['protein'], 'chain_M'):
+                mask = batch['protein'].chain_M.bool()
+            else:
+                mask = torch.ones_like(batch['protein'].y).bool()
+                
             if mask.sum() == 0:
                 continue
                 
             masked_logits = logits[mask]
-            masked_targets = batch.y[mask]
+            masked_targets = batch['protein'].y[mask]
             
             loss = criterion(masked_logits, masked_targets)
             total_loss += loss.item()
@@ -125,9 +132,9 @@ def main():
         history["val_acc"].append(val_acc)
         
         print(f"Epoch {epoch+1:03d}/{args.epochs:03d} | "
-              f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
-              f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f}")
-              
+            f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
+            f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f}")
+
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             early_stop_counter = 0
