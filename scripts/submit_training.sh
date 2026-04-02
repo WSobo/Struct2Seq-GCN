@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=struct2seq
+#SBATCH --job-name=s2s-gnn
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:a5500:4          # Request 4x A5500 GPUs
+#SBATCH --gres=gpu:A5500:4          # Request 4x A5500 GPUs
 #SBATCH --cpus-per-task=16          # 16 CPU cores for dataset multiprocessing
 #SBATCH --mem=64G                   # 64GB RAM for 150k loaded dataset pointers
-#SBATCH --time=48:00:00             # 48 hours bounds
+#SBATCH --time=96:00:00             # 96 hours bounds overkill for 50 epochs at batch size 16*4
 #SBATCH --output=slurm_train_%j.out # Standard text output dump
 
 echo "Running on hosts: $SLURM_NODELIST"
