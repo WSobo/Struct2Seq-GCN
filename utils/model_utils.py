@@ -97,7 +97,7 @@ class Struct2SeqGNN(nn.Module):
         
         # 2. Iterative Message Passing through HeteroConv
         for layer in self.layers:
-            x_dict = layer(x_dict, edge_index_dict, edge_attr=edge_attr_dict_expanded)
+            x_dict = layer(x_dict, edge_index_dict, edge_attr_dict=edge_attr_dict_expanded)
             
         # 3. Readout on Protein nodes
         protein_x = x_dict['protein']

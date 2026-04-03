@@ -12,11 +12,12 @@ from torch.optim import Adam
 from torch_geometric.loader import DataLoader
 from utils.dataset import Struct2SeqDataset
 from utils.model_utils import Struct2SeqGNN
+import datetime
 
 def setup_ddp():
     """Initialize Distributed Data Parallel environment."""
     if "WORLD_SIZE" in os.environ:
-        dist.init_process_group("nccl")
+        dist.init_process_group("nccl", timeout=datetime.timedelta(hours=4))
         local_rank = int(os.environ["LOCAL_RANK"])
         torch.cuda.set_device(local_rank)
         return local_rank, dist.get_world_size()
@@ -146,10 +147,17 @@ def main():
         print(f"Using device: {device} | World Size: {world_size}")
     
     # 1. Dataset & Dataloaders
+    if not is_main_process and dist.is_initialized():
+        dist.barrier()  # Wait here to ensure rank 0 safely verifies the cached data
+
     if is_main_process:
-        print("Initializing datasets... (This will process raw PDBs into PyG graphs)")
+        print("Loading cached PyG datasets... (Assuming preprocessing was completed by CPU job)")
+        
     train_dataset = Struct2SeqDataset(root="training/train_data", json_file=args.json_train, pdb_dir=args.pdb_dir, max_samples=args.max_samples)
     valid_dataset = Struct2SeqDataset(root="training/valid_data", json_file=args.json_valid, pdb_dir=args.pdb_dir, max_samples=args.max_samples // 10 if args.max_samples else None)
+    
+    if is_main_process and dist.is_initialized():
+        dist.barrier()  # Release other ranks since local processing/caching is completely finished
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=local_rank, shuffle=True) if dist.is_initialized() else None
     valid_sampler = DistributedSampler(valid_dataset, num_replicas=world_size, rank=local_rank, shuffle=False) if dist.is_initialized() else None

@@ -17,3 +17,4 @@ outputs/
 LigandMPNN/
 local_models/
 *.pt
+training/
