@@ -17,7 +17,20 @@ class Struct2SeqDataset(Dataset):
         self.pdb_dir = pdb_dir
         self.radius = radius
         with open(json_file, 'r') as f:
-            self.pdb_ids = json.load(f)
+            raw_ids = json.load(f)
+            
+        # Pre-filter IDs to strictly those that successfully downloaded
+        # to prevent PyTorch DataLoaders from crashing on missing files
+        self.pdb_ids = []
+        for pdb_id in raw_ids:
+            pdb_id_str = str(pdb_id).lower()
+            sub_dir = pdb_id_str[1:3] if len(pdb_id_str) >= 4 else "misc"
+            pdb_path = os.path.join(self.pdb_dir, sub_dir, f"{pdb_id}.pdb")
+            pt_path = os.path.join(self.pdb_dir, sub_dir, f"{pdb_id}.pt")
+            if os.path.exists(pdb_path) or os.path.exists(pt_path):
+                self.pdb_ids.append(pdb_id)
+                
+        print(f"Loaded {len(self.pdb_ids)} valid downloaded structures out of {len(raw_ids)} original IDs in {json_file}.")
             
         if max_samples is not None and len(self.pdb_ids) > max_samples:
             import random

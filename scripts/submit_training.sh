@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:A5500:4
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=wsobolew@ucsc.edu
 
