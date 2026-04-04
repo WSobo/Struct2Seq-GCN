@@ -39,7 +39,12 @@ def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step,
         optimizer.zero_grad()
         
         # Coordinate Noise Injection (Data Augmentation)
-        # Prevents perfectly memorizing exact crystallographic distances
+        # Prevents perfectly memorizing exact crystallographic distances and angles
+        for node_type in batch.node_types:
+            if hasattr(batch[node_type], 'pos'):
+                batch[node_type].pos += torch.randn_like(batch[node_type].pos) * 0.1
+                
+        # Only inject the distance noise scaler if the cached edge attrs still physically represent basic scalar lengths
         for edge_type in batch.edge_types:
             if hasattr(batch[edge_type], 'edge_attr'):
                 batch[edge_type].edge_attr += torch.randn_like(batch[edge_type].edge_attr) * 0.1
