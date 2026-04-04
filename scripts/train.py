@@ -43,11 +43,6 @@ def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step,
         for node_type in batch.node_types:
             if hasattr(batch[node_type], 'pos'):
                 batch[node_type].pos += torch.randn_like(batch[node_type].pos) * 0.1
-                
-        # Only inject the distance noise scaler if the cached edge attrs still physically represent basic scalar lengths
-        for edge_type in batch.edge_types:
-            if hasattr(batch[edge_type], 'edge_attr'):
-                batch[edge_type].edge_attr += torch.randn_like(batch[edge_type].edge_attr) * 0.1
         
         # Forward pass
         logits = model(batch)
@@ -245,6 +240,9 @@ def main():
             val_loss = (val_loss_tensor / world_size).item()
             val_acc = (val_acc_tensor / world_size).item()
             
+        # Perform LR Scheduler step simultaneously on all ranks to prevent diverging optimizers
+        scheduler.step(val_loss)
+            
         if is_main_process:
             # Log metrics to history
             history["train_loss"].append(train_loss)
@@ -256,8 +254,6 @@ def main():
                 f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
                 f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f} | "
                 f"LR: {optimizer.param_groups[0]['lr']:.2e}")
-
-            scheduler.step(val_loss)
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
