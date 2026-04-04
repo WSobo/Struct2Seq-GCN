@@ -80,10 +80,12 @@ class Struct2SeqGNN(nn.Module):
         edge_attr_dict = data.edge_attr_dict
         
         # 1. Expand features
-        x_dict = {
-            'protein': self.protein_emb(x_dict['protein']),
-            'ligand': self.ligand_emb(x_dict['ligand'])
+        x_dict_expanded = {
+            'protein': self.protein_emb(x_dict['protein'])
         }
+        if 'ligand' in x_dict:
+            x_dict_expanded['ligand'] = self.ligand_emb(x_dict['ligand'])
+        x_dict = x_dict_expanded
         
         edge_attr_dict_expanded = {}
         for edge_type, edge_attr in edge_attr_dict.items():
