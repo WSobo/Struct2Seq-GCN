@@ -77,11 +77,17 @@ def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step,
             batch_acc = batch_correct / batch_samples if batch_samples > 0 else 0.0
             print(f"  [Epoch {epoch+1} | Step {global_step}] Loss: {loss_val:.4f} | Acc: {batch_acc:.4f}")
             
-        # Step-level Mid-Epoch Checkpointing
+        # Step-level Mid-Epoch Checkpointing (Good MLOps: Overwrite the latest checkpoint & save optimizer state for resuming)
         if checkpoint_interval > 0 and global_step % checkpoint_interval == 0:
-            ckpt_path = os.path.join(out_dir, f"checkpoint_step_{global_step}.pt")
-            torch.save(model.state_dict(), ckpt_path)
-            print(f"  -> Saved step checkpoint: {ckpt_path}")
+            ckpt_path = os.path.join(out_dir, "latest_step_checkpoint.pt")
+            model_to_save = model.module if hasattr(model, 'module') else model
+            torch.save({
+                'step': global_step,
+                'epoch': epoch,
+                'model_state_dict': model_to_save.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict()
+            }, ckpt_path)
+            print(f"  -> Saved overwriteable step checkpoint: {ckpt_path}")
         
     return total_loss / len(loader), correct / total_samples, global_step
 
@@ -187,7 +193,9 @@ def main():
     
     if dist.is_initialized():
         # Using DistributedDataParallel
-        model = DDP(model, device_ids=[local_rank])
+        # We must set find_unused_parameters=True because some graphs in a batch may not have ligands,
+        # meaning the ligand embedding layers won't receive gradients, which normally crashes DDP.
+        model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
         
     optimizer = Adam(model.parameters(), lr=args.lr)
     
