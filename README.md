@@ -7,6 +7,20 @@ A pretrained v1.0 checkpoint is available in `pretrained_models/v1.0/best_model.
 
 ## Architecture
 
+### Data Flow
+
+```mermaid
+flowchart LR
+    A["🗂️ Input PDB\n(atomic coordinates)"]
+    B["📐 Graph Representation\n(HeteroData)\n• Protein nodes: backbone dihedrals\n• Ligand nodes: element one-hot\n• Edges: radius graph @ 8 Å"]
+    C["🔄 Message Passing Layers\n(HeteroConv × num_layers)\n• GaussianSmearing on distances\n• ResidualCGConvBlock per edge type\n• LayerNorm + Dropout + skip"]
+    D["🧬 Output Sequence\nLinear(hidden_dim → 21)\nper protein node → argmax/sample"]
+
+    A -->|"parse_PDB\n+ featurize"| B
+    B -->|"node & edge\nfeatures"| C
+    C -->|"updated protein\nnode embeddings"| D
+```
+
 ### Graph Construction (`utils/graph_builder.py`)
 Raw PDB files are parsed through LigandMPNN's native `parse_PDB` + `featurize` pipeline. The output is a `HeteroData` graph with two node types and three directed edge types:
 
