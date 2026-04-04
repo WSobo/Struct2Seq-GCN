@@ -9,6 +9,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.optim import Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch_geometric.loader import DataLoader
 from utils.dataset import Struct2SeqDataset
 from utils.model_utils import Struct2SeqGNN
@@ -36,6 +37,12 @@ def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step,
     for step, batch in enumerate(loader):
         batch = batch.to(device)
         optimizer.zero_grad()
+        
+        # Coordinate Noise Injection (Data Augmentation)
+        # Prevents perfectly memorizing exact crystallographic distances
+        for edge_type in batch.edge_types:
+            if hasattr(batch[edge_type], 'edge_attr'):
+                batch[edge_type].edge_attr += torch.randn_like(batch[edge_type].edge_attr) * 0.1
         
         # Forward pass
         logits = model(batch)
@@ -198,6 +205,7 @@ def main():
         model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
         
     optimizer = Adam(model.parameters(), lr=args.lr)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
     
     # Loss: cross entropy over the 21 classes (ignoring padding is already handled by masking)
     criterion = nn.CrossEntropyLoss()
@@ -241,7 +249,10 @@ def main():
             
             print(f"Epoch {epoch+1:03d}/{args.epochs:03d} | "
                 f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
-                f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f}")
+                f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f} | "
+                f"LR: {optimizer.param_groups[0]['lr']:.2e}")
+
+            scheduler.step(val_loss)
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
