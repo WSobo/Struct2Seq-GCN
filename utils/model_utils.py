@@ -93,24 +93,23 @@ class Struct2SeqGNN(nn.Module):
         for edge_type, edge_attr in edge_attr_dict.items():
             src_type, rel_type, dst_type = edge_type
             
-            # Using the pre-calculated distance
-            dist = edge_attr[:, 0]
-            
             # Generate 3D direction vectors symmetrically on-the-fly!
-            # By generating these dynamically inside the forward pass, we skip having to delete
-            # and re-generate the 150k hard drive .pt datasets!
+            # We recalculate the distance dynamically from pos so that it structurally 
+            # matches the vectors even when Gaussian noise is injected into pos during training.
             src_pos = data[src_type].pos
             dst_pos = data[dst_type].pos
             src_idx, dst_idx = edge_index_dict[edge_type]
             
             vec = dst_pos[dst_idx] - src_pos[src_idx]
+            dist_new = torch.norm(vec, dim=-1)
+            
             # Convert raw coordinates into purely directional unit vectors
-            vec_norm = vec / (torch.norm(vec, dim=-1, keepdim=True) + 1e-7)
+            vec_norm = vec / (dist_new.unsqueeze(-1) + 1e-7)
 
             key = f"{src_type}__{rel_type}__{dst_type}"
             if key in self.edge_embs:
                 # Expand standard scalar distance to [E, 16] 
-                dist_smeared = self.edge_embs[key](dist)
+                dist_smeared = self.edge_embs[key](dist_new)
                 
                 # Combine length and direction! Output -> [E, 19]
                 edge_attr_dict_expanded[edge_type] = torch.cat([dist_smeared, vec_norm], dim=-1)
