@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch_geometric.nn import CGConv, Linear, HeteroConv
+from torch_geometric.nn import TransformerConv, Linear, HeteroConv
 import torch.nn.functional as F
 
 class GaussianSmearing(nn.Module):
@@ -21,10 +21,12 @@ class GaussianSmearing(nn.Module):
         dist = dist.view(-1, 1) - self.offset.view(1, -1)
         return torch.exp(self.coeff * torch.pow(dist, 2))
 
-class ResidualCGConvBlock(nn.Module):
-    def __init__(self, hidden_dim, edge_dim=16, dropout=0.1):
-        super(ResidualCGConvBlock, self).__init__()
-        self.conv = CGConv(hidden_dim, dim=edge_dim, batch_norm=True)
+class ResidualAttentionBlock(nn.Module):
+    def __init__(self, hidden_dim, edge_dim=19, dropout=0.1):
+        super(ResidualAttentionBlock, self).__init__()
+        # TransformerConv natively absorbs edge_attr into its attention mechanism.
+        # We split the 128 hidden_dim across 4 attention heads (32 dim per head) to maintain exact tensor shapes.
+        self.conv = TransformerConv(hidden_dim, hidden_dim // 4, heads=4, concat=True, edge_dim=edge_dim)
         self.norm = nn.LayerNorm(hidden_dim)
         self.dropout = nn.Dropout(dropout)
         
@@ -62,9 +64,9 @@ class Struct2SeqGNN(nn.Module):
         self.layers = nn.ModuleList()
         for _ in range(num_layers):
             conv = HeteroConv({
-                ('protein', 'interacts_with', 'protein'): ResidualCGConvBlock(hidden_dim, edge_dim=16, dropout=dropout),
-                ('ligand', 'binds', 'protein'): ResidualCGConvBlock(hidden_dim, edge_dim=16, dropout=dropout),
-                ('protein', 'binds', 'ligand'): ResidualCGConvBlock(hidden_dim, edge_dim=16, dropout=dropout)
+                ('protein', 'interacts_with', 'protein'): ResidualAttentionBlock(hidden_dim, edge_dim=19, dropout=dropout),
+                ('ligand', 'binds', 'protein'): ResidualAttentionBlock(hidden_dim, edge_dim=19, dropout=dropout),
+                ('protein', 'binds', 'ligand'): ResidualAttentionBlock(hidden_dim, edge_dim=19, dropout=dropout)
             }, aggr='sum')
             self.layers.append(conv)
         
@@ -89,11 +91,29 @@ class Struct2SeqGNN(nn.Module):
         
         edge_attr_dict_expanded = {}
         for edge_type, edge_attr in edge_attr_dict.items():
-            # PyG creates string representations of edge type tuples (src, edge, dst)
-            # which we convert to valid py keys for the ModuleDict lookup via '__'
-            key = f"{edge_type[0]}__{edge_type[1]}__{edge_type[2]}"
+            src_type, rel_type, dst_type = edge_type
+            
+            # Using the pre-calculated distance
+            dist = edge_attr[:, 0]
+            
+            # Generate 3D direction vectors symmetrically on-the-fly!
+            # By generating these dynamically inside the forward pass, we skip having to delete
+            # and re-generate the 150k hard drive .pt datasets!
+            src_pos = data[src_type].pos
+            dst_pos = data[dst_type].pos
+            src_idx, dst_idx = edge_index_dict[edge_type]
+            
+            vec = dst_pos[dst_idx] - src_pos[src_idx]
+            # Convert raw coordinates into purely directional unit vectors
+            vec_norm = vec / (torch.norm(vec, dim=-1, keepdim=True) + 1e-7)
+
+            key = f"{src_type}__{rel_type}__{dst_type}"
             if key in self.edge_embs:
-                edge_attr_dict_expanded[edge_type] = self.edge_embs[key](edge_attr)
+                # Expand standard scalar distance to [E, 16] 
+                dist_smeared = self.edge_embs[key](dist)
+                
+                # Combine length and direction! Output -> [E, 19]
+                edge_attr_dict_expanded[edge_type] = torch.cat([dist_smeared, vec_norm], dim=-1)
             else:
                 edge_attr_dict_expanded[edge_type] = edge_attr
         
