@@ -26,6 +26,8 @@ def main():
     parser.add_argument("--weights", type=str, default="outputs/best_model.pt", help="Path to trained model weights (.pt)")
     parser.add_argument("--radius", type=float, default=8.0, help="Distance cutoff in Angstroms for graph edges")
     parser.add_argument("--out_fasta", type=str, default=None, help="Path to save the predicted sequence as FASTA")
+    parser.add_argument("--temperature", type=float, default=0.1, help="Sampling temperature for sequence generation (0.0 means greedy argmax)")
+    parser.add_argument("--fixed_residues", type=str, default=None, help="Comma-separated list of zero-indexed residue positions to keep native (e.g., '10,11,15')")
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -65,8 +67,22 @@ def main():
         if isinstance(logits, dict):
             logits = logits['protein']
             
-        probabilities = F.softmax(logits, dim=-1)
-        predicted_classes = torch.argmax(probabilities, dim=-1)
+        if args.temperature > 0.0:
+            probabilities = F.softmax(logits / args.temperature, dim=-1)
+            predicted_classes = torch.multinomial(probabilities, num_samples=1).squeeze(-1)
+        else:
+            probabilities = F.softmax(logits, dim=-1)
+            predicted_classes = torch.argmax(probabilities, dim=-1)
+            
+    # Native classes used for tracking match rate and fixed residues
+    native_classes = data['protein'].y
+    
+    # Apply fixed residues logic
+    if args.fixed_residues is not None:
+        fixed_indices = [int(i.strip()) for i in args.fixed_residues.split(',')]
+        for idx in fixed_indices:
+            if idx < len(predicted_classes):
+                predicted_classes[idx] = native_classes[idx]
         
     # 5. Decode classes to Amino Acids & Calculate Recovery
     predicted_seq = "".join([restype_int_to_str.get(c.item(), "X") for c in predicted_classes])
