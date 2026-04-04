@@ -38,7 +38,7 @@ srun torchrun --standalone --nproc_per_node=4 scripts/train.py \
     --pin_memory \
     --hidden_dim 256 \
     --num_layers 6 \
-    --epochs 50
+    --epochs 200
 
 # NOTE: A batch size of 16 distributed over 4 DDP GPUs yields a real batch size of 64 per step.
 echo "Training completed at: $(date)"
