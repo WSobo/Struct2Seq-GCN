@@ -128,7 +128,6 @@ python scripts/inference.py \
     --out_fasta outputs/1BC8_predicted.fasta \
     --temperature 0.1
 ```
-
 Key inference arguments:
 
 | Argument | Default | Description |
@@ -139,3 +138,13 @@ Key inference arguments:
 | `--fixed_residues` | `None` | Comma-separated zero-indexed positions to keep native (e.g. `10,11,15`) |
 
 *See `notebooks/inference_demo.ipynb` for an interactive, Colab-ready walkthrough.*
+
+## Benchmark Results (v2.0)
+
+Evaluated on the LigandMPNN validation set (7448 structures).
+
+- **Validation Loss:** 2.2295
+- **Global Accuracy:** 30.36%
+- **5.0Å Pocket Accuracy:** 35.13%
+
+*Note: The model demonstrates stronger recovery around the ligand-binding pocket (5.0Å) compared to the overall global structure.*
