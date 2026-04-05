@@ -98,11 +98,46 @@ def train_epoch(model, loader, optimizer, criterion, device, epoch, global_step,
         
     return total_loss / len(loader), correct / total_samples, global_step
 
+def get_pocket_mask_pyg(batch, threshold=5.0):
+    """
+    Calculates a 5.0 Å pocket mask for PyG HeteroData batches.
+    Returns a boolean mask of shape [total_protein_nodes].
+    """
+    device = batch['protein'].pos.device
+    pocket_mask = torch.zeros(batch['protein'].num_nodes, dtype=torch.bool, device=device)
+    
+    # If there are no ligands in this entire batch, return empty mask
+    if 'ligand' not in batch.node_types or batch['ligand'].num_nodes == 0:
+        return pocket_mask
+
+    # Iterate through each independent graph in the disjoint PyG batch
+    for i in range(batch.num_graphs):
+        p_idx = batch['protein'].batch == i
+        l_idx = batch['ligand'].batch == i
+        
+        # Skip if this specific protein has no ligand (Apo structure)
+        if l_idx.sum() == 0:
+            continue
+            
+        p_pos = batch['protein'].pos[p_idx]
+        l_pos = batch['ligand'].pos[l_idx]
+        
+        # Calculate pairwise distances between all protein atoms and ligand atoms for this graph
+        distances = torch.cdist(p_pos, l_pos)
+        
+        # Find residues where minimum distance < 5.0 Å
+        min_distances, _ = torch.min(distances, dim=-1)
+        pocket_mask[p_idx] = (min_distances < threshold)
+        
+    return pocket_mask
+
 def evaluate(model, loader, criterion, device):
     model.eval()
     total_loss = 0
     correct = 0
     total_samples = 0
+    pocket_correct = 0
+    pocket_samples = 0
     
     with torch.no_grad():
         for batch in loader:
@@ -123,11 +158,22 @@ def evaluate(model, loader, criterion, device):
             loss = criterion(masked_logits, masked_targets)
             total_loss += loss.item()
             
-            preds = masked_logits.argmax(dim=-1)
-            correct += (preds == masked_targets).sum().item()
+            preds = logits.argmax(dim=-1)
+            
+            # Global accuracy
+            correct += (preds[mask] == masked_targets).sum().item()
             total_samples += mask.sum().item()
             
-    return total_loss / len(loader), correct / total_samples
+            # Pocket-specific accuracy metrics (within 5.0 A of ligand)
+            pocket_mask = get_pocket_mask_pyg(batch, threshold=5.0)
+            combined_pocket_mask = mask & pocket_mask
+            
+            if combined_pocket_mask.sum() > 0:
+                pocket_preds = logits[combined_pocket_mask].argmax(dim=-1)
+                pocket_correct += (pocket_preds == batch['protein'].y[combined_pocket_mask]).sum().item()
+                pocket_samples += combined_pocket_mask.sum().item()
+            
+    return total_loss / len(loader), correct / total_samples, pocket_correct / max(pocket_samples, 1)
 
 def main():
     parser = argparse.ArgumentParser(description="Train Struct2Seq-GNN")
@@ -229,16 +275,19 @@ def main():
             model, train_loader, optimizer, criterion, device, 
             epoch, global_step, args.log_interval if is_main_process else 0, args.checkpoint_interval if is_main_process else 0, args.out_dir
         )
-        val_loss, val_acc = evaluate(model, valid_loader, criterion, device)
+        val_loss, val_acc, val_pocket_acc = evaluate(model, valid_loader, criterion, device)
         
         if dist.is_initialized():
             # Gather metrics across GPUs
             val_loss_tensor = torch.tensor(val_loss, device=device)
             val_acc_tensor = torch.tensor(val_acc, device=device)
+            val_pocket_acc_tensor = torch.tensor(val_pocket_acc, device=device)
             dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
             dist.all_reduce(val_acc_tensor, op=dist.ReduceOp.SUM)
+            dist.all_reduce(val_pocket_acc_tensor, op=dist.ReduceOp.SUM)
             val_loss = (val_loss_tensor / world_size).item()
             val_acc = (val_acc_tensor / world_size).item()
+            val_pocket_acc = (val_pocket_acc_tensor / world_size).item()
             
         # Perform LR Scheduler step simultaneously on all ranks to prevent diverging optimizers
         scheduler.step(val_loss)
@@ -249,10 +298,11 @@ def main():
             history["train_acc"].append(train_acc)
             history["val_loss"].append(val_loss)
             history["val_acc"].append(val_acc)
+            history.setdefault("val_pocket_acc", []).append(val_pocket_acc)
             
             print(f"Epoch {epoch+1:03d}/{args.epochs:03d} | "
                 f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.4f} | "
-                f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.4f} | "
+                f"Val Loss: {val_loss:.4f} - Global Acc: {val_acc:.4f} - Pocket Acc: {val_pocket_acc:.4f} | "
                 f"LR: {optimizer.param_groups[0]['lr']:.2e}")
 
             if val_loss < best_val_loss:
