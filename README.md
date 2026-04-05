@@ -30,21 +30,28 @@ Raw PDB files are parsed through LigandMPNN's native `parse_PDB` + `featurize` p
 
 ```
 Struct2Seq-GNN/
-├── LigandMPNN/               # Submodule: structural parser
-├── pretrained_models/v1.0/   # Released checkpoint + training history
+├── LigandMPNN/                    # Submodule: structural parser
+├── pretrained_models/
+│   ├── v1.0/                      # v1.0 checkpoint + training history
+│   └── v2.0/                      # v2.0 checkpoint + training history
 ├── utils/
-│   ├── graph_builder.py      # PDB → HeteroData conversion
-│   ├── dataset.py            # PyG Dataset with multiprocess preprocessing
-│   └── model_utils.py        # GNN architecture definition
+│   ├── graph_builder.py           # PDB → HeteroData conversion
+│   ├── dataset.py                 # PyG Dataset with multiprocess preprocessing
+│   └── model_utils.py             # GNN architecture definition
 ├── scripts/
-│   ├── preprocess.py         # CPU-only preprocessing (cache .pt graphs)
-│   ├── train.py              # DDP-ready training loop
-│   ├── inference.py          # Inference + FASTA export
-│   └── run.py                # Minimal single-PDB forward pass
+│   ├── preprocess.py              # CPU-only preprocessing (cache .pt graphs)
+│   ├── train.py                   # DDP-ready training loop
+│   ├── inference.py               # Inference + FASTA export
+│   ├── run.py                     # Minimal single-PDB forward pass
+│   ├── download_json_pdbs.py      # Download PDBs listed in LigandMPNN JSON splits
+│   ├── fetch_data.sh              # SLURM job: rsync PDB archive
+│   ├── submit_preprocessing.sh    # SLURM job: launch preprocess.py
+│   └── submit_training.sh         # SLURM job: launch train.py
 ├── notebooks/
-│   ├── inference_demo.ipynb  # Interactive inference walkthrough
-│   ├── test_pipeline.ipynb   # End-to-end pipeline smoke test
-│   └── train_full_scale.ipynb # Bulk RCSB rsync + SLURM training guide
+│   ├── inference_demo.ipynb       # Interactive inference walkthrough
+│   ├── test_pipeline.ipynb        # End-to-end pipeline smoke test
+│   └── train_full_scale.ipynb     # Bulk RCSB rsync + SLURM training guide
+├── test_forward.py                # Sanity-check single forward pass (no data required)
 └── requirements.txt
 ```
 
