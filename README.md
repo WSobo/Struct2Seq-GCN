@@ -59,3 +59,14 @@ python scripts/inference.py \
     --out_fasta outputs/1BC8_predicted.fasta
 ```
 *See `notebooks/inference_demo.ipynb` for a fully interactive Colab-ready environment.*
+
+## Benchmark Results (v2.0)
+
+Evaluated on the LigandMPNN validation set (7448 structures).
+
+- **Validation Loss:** 2.2295
+- **Global Accuracy:** 30.36%
+- **5.0Å Pocket Accuracy:** 35.13%
+
+*Note: The model demonstrates stronger recovery around the ligand-binding pocket (5.0Å) compared to the overall global structure.*
+
