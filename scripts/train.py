@@ -318,7 +318,6 @@ def main():
                 print(f"  -> Early stopping counter: {early_stop_counter}/{early_stop_patience}")
                 if early_stop_counter >= early_stop_patience:
                     print(f"\nEarly stopping triggered after {epoch+1} epochs.")
-                    break
         
         # Sync the early stop across all nodes to gracefully exit
         stop_tensor = torch.tensor(early_stop_counter >= early_stop_patience, device=device, dtype=torch.int)
