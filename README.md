@@ -30,7 +30,7 @@ Raw PDB files are parsed through LigandMPNN's native `parse_PDB` + `featurize` p
 
 ```
 Struct2Seq-GNN/
-├── LigandMPNN/                    # Submodule: structural parser
+├── LigandMPNN/                    # Cloned LigandMPNN Repo
 ├── pretrained_models/
 │   ├── v1.0/                      # v1.0 checkpoint + training history
 │   └── v2.0/                      # v2.0 checkpoint + training history
