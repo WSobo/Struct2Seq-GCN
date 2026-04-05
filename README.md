@@ -1,5 +1,7 @@
 # Struct2Seq-GNN: Heterogeneous Protein-Ligand Sequence Design
 
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Live%20Demo-blue)](https://huggingface.co/spaces/WSobo/Struct2Seq-GNN-Web-Demo)
+
 ## Overview
 Struct2Seq-GNN is a Heterogeneous Graph Neural Network (HGNN) built in PyTorch Geometric (PyG). It predicts optimal amino acid sequences by co-embedding the 3D geometric environments of protein backbones alongside spatial ligand interactions, using **LigandMPNN** as its structural parser to guarantee 1:1 feature equivalency.
 
