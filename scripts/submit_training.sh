@@ -27,6 +27,10 @@ cd /private/groups/yehlab/wsobolew/02_projects/computational/Struct2Seq-GNN
 echo "Running on hosts: $SLURM_NODELIST"
 echo "Timestamp: $(date)"
 
+# Explicitly set OpenMP threads to prevent oversubscription & silence torchrun warnings
+# We have 16 CPUS and 4 GPUs -> 4 OpenMP threads per process
+export OMP_NUM_THREADS=4
+
 # Enable Tensor Core optimization by setting precision
 python -c "import torch; torch.set_float32_matmul_precision('medium'); print('Tensor precision optimized')"
 
